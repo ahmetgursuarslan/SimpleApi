@@ -1,0 +1,36 @@
+# Node dependencies
+node_modules/
+
+# Env files
+.env
+.env.*
+!.env.example
+
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Editor
+.vscode/
+.idea/
+
+# Build outputs & coverage
+coverage/
+dist/
+build/
+.nyc_output/
+.eslintcache
+
+# Jest
+jest-html-reporters-*.html
+
+# Docker
+*.pid

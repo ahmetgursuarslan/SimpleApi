@@ -1,11 +1,11 @@
-create table Customer (
-id int not null auto_increment,
-customer_name varchar(100) not null,
-customer_surname varchar(100) not null,
-customer_age int not null,
-customer_gender boolean not null,
-primary key(id)
+CREATE TABLE IF NOT EXISTS customer (
+	id INT NOT NULL AUTO_INCREMENT,
+	customer_name VARCHAR(100) NOT NULL,
+	customer_surname VARCHAR(100) NOT NULL,
+	customer_age INT NOT NULL,
+	customer_gender ENUM('male','female','other') NOT NULL,
+	PRIMARY KEY (id)
 );
 
-insert into customer set  customer_name="Jonas",
-customer_surname="dark",customer_age=18,customer_gender=1
+INSERT INTO customer (customer_name, customer_surname, customer_age, customer_gender)
+VALUES ("Jonas", "Dark", 18, 'male');

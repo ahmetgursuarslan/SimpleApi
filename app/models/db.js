@@ -1,21 +1,28 @@
-//npm install mysql --save
-const mysql = require("mysql");
-const dbConfig = require("../config/db.config.js");
+const mysql = require('mysql2');
+const dbConfig = require('../config/db.config.js');
 
-// Create a connection to the database
-const connection = mysql.createConnection({
+// Create a connection pool
+const pool = mysql.createPool({
   host: dbConfig.HOST,
   user: dbConfig.USER,
   password: dbConfig.PASSWORD,
   database: dbConfig.DB,
   port: dbConfig.PORT,
-  insecureAuth: true
+  connectionLimit: dbConfig.CONNECTION_LIMIT,
+  supportBigNumbers: true,
+  waitForConnections: true,
+  queueLimit: 0,
+  // Enable named placeholders for safer query composition when needed
+  namedPlaceholders: true,
 });
 
-// open the MySQL connection
-connection.connect(error => {
-  if (error) throw error;
-  console.log("Successfully connected to the database.");
+pool.getConnection((err, conn) => {
+  if (err) {
+    console.error('Database connection failed:', err.message);
+  } else {
+    console.log('Successfully connected to the database.');
+    conn.release();
+  }
 });
 
-module.exports = connection;
+module.exports = pool;

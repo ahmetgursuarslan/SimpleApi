@@ -1,0 +1,28 @@
+{
+  "env": {
+    "es2021": true,
+    "node": true,
+    "jest": true
+  },
+  "extends": ["eslint:recommended", "plugin:prettier/recommended"],
+  "parserOptions": {
+    "ecmaVersion": 2021,
+    "sourceType": "script"
+  },
+  "rules": {
+    "no-console": "off",
+    "no-unused-vars": ["warn", { "argsIgnorePattern": "^_" }],
+    "prefer-const": "warn"
+  },
+  "overrides": [
+    {
+      "files": ["app/**/*.js", "index.js", "scripts/**/*.js"],
+      "parserOptions": { "sourceType": "script" }
+    },
+    {
+      "files": ["tests/**/*.js"],
+      "env": { "jest": true },
+      "rules": { "no-console": "off" }
+    }
+  ]
+}

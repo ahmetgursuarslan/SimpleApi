@@ -34,7 +34,7 @@
     "express": "^4.22.2",
     "express-rate-limit": "^6.7.0",
     "helmet": "^7.1.0",
-    "joi": "^18.2.1",
+    "joi": "^18.2.8",
     "morgan": "^1.11.0",
     "mysql2": "^3.9.7",
     "swagger-jsdoc": "^6.2.8",

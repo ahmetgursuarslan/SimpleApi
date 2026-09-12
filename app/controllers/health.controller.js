@@ -1,15 +1,15 @@
 const pool = require('../models/db');
+const { isTest } = require('../config/env');
 
 exports.ping = async (req, res) => {
-  const start = process.hrtime.bigint();
   let dbMs = null;
-  if (process.env.NODE_ENV !== 'test') {
+  if (!isTest) {
+    const start = process.hrtime.bigint();
     try {
-      const [[row]] = await pool.promise().query('SELECT 1 as db');
-      void row;
-      const end = process.hrtime.bigint();
-      dbMs = Number(end - start) / 1e6;
+      await pool.promise().query('SELECT 1 as db');
+      dbMs = Number(process.hrtime.bigint() - start) / 1e6;
     } catch (e) {
+      console.error('Health DB ping failed:', e.message);
       dbMs = -1; // indicate failure
     }
   }

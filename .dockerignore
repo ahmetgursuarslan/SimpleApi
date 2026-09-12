@@ -1,0 +1,38 @@
+# Secrets - COPY . . would otherwise bake local credentials into the image layer
+.env
+.env.*
+!.env.example
+
+# Dependencies are installed inside the image
+node_modules
+npm-debug.log*
+
+# VCS and CI
+.git
+.gitignore
+.github
+.husky
+
+# Tests, coverage and tooling
+tests
+coverage
+.nyc_output
+.eslintcache
+jest.config.js
+eslint.config.js
+.prettierrc
+
+# Local/editor noise
+.vscode
+.idea
+.DS_Store
+Thumbs.db
+*.log
+*.pid
+
+# Docs and container definitions
+Dockerfile
+.dockerignore
+docker-compose.yml
+README.md
+LICENSE

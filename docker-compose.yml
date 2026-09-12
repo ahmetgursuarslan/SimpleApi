@@ -1,31 +1,49 @@
-version: '3.9'
 services:
   db:
     image: mysql:8.0
     restart: unless-stopped
     environment:
-      MYSQL_ROOT_PASSWORD: ${DB_PASSWORD:-password}
+      # No weak default: compose refuses to start without an explicit password.
+      MYSQL_ROOT_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD must be set in .env}
       MYSQL_DATABASE: ${DB_NAME:-simpleapi}
     ports:
-      - '3306:3306'
+      # Bound to loopback so the database is not reachable from the network.
+      - '127.0.0.1:3306:3306'
     volumes:
       - db_data:/var/lib/mysql
       - ./customer.sql:/docker-entrypoint-initdb.d/1_customer.sql:ro
+    healthcheck:
+      test: ['CMD', 'mysqladmin', 'ping', '-h', '127.0.0.1', '-p${DB_PASSWORD}']
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
   api:
     build: .
+    restart: unless-stopped
     depends_on:
-      - db
+      db:
+        condition: service_healthy
     environment:
+      NODE_ENV: ${NODE_ENV:-production}
       PORT: 3000
-      CORS_ORIGIN: http://localhost:3000
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000}
+      TRUST_PROXY: ${TRUST_PROXY:-false}
+      API_KEY: ${API_KEY:?API_KEY must be set in .env}
       DB_HOST: db
-      DB_USER: root
-      DB_PASSWORD: ${DB_PASSWORD:-password}
+      DB_USER: ${DB_USER:-root}
+      DB_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD must be set in .env}
       DB_NAME: ${DB_NAME:-simpleapi}
       DB_PORT: 3306
       DB_CONNECTION_LIMIT: 10
     ports:
       - '3000:3000'
-    command: ['node', 'index.js']
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      - /tmp
+
 volumes:
   db_data:

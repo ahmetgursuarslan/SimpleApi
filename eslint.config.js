@@ -1,47 +1,46 @@
-// ESLint flat config for ESLint v9
-// Docs: https://eslint.org/docs/latest/use/configure/migration-guide
+// ESLint flat config (ESLint v9+)
+// Docs: https://eslint.org/docs/latest/use/configure/configuration-files
 
 const js = require('@eslint/js');
+const globals = require('globals');
+const prettierConfig = require('eslint-config-prettier');
+const prettierPlugin = require('eslint-plugin-prettier');
 
 module.exports = [
-  js.configs.recommended,
   {
+    ignores: ['node_modules/**', 'coverage/**', 'dist/**', 'build/**'],
+  },
+  js.configs.recommended,
+  prettierConfig,
+  {
+    files: ['**/*.js'],
     languageOptions: {
-      ecmaVersion: 2021,
-      sourceType: 'script',
+      ecmaVersion: 2022,
+      sourceType: 'commonjs',
       globals: {
-        process: 'readonly',
-        module: 'readonly',
-        require: 'readonly',
-        __dirname: 'readonly',
-        console: 'readonly',
-        exports: 'readonly',
+        ...globals.node,
+        ...globals.es2022,
       },
     },
-    files: ['**/*.js'],
-    ignores: ['node_modules/**', 'coverage/**'],
+    plugins: { prettier: prettierPlugin },
     rules: {
+      'prettier/prettier': 'warn',
       'no-console': 'off',
-      'no-unused-vars': ['warn', { argsIgnorePattern: '^_' }],
-      'prefer-const': 'warn',
+      'no-unused-vars': ['error', { argsIgnorePattern: '^_', caughtErrors: 'none' }],
+      'prefer-const': 'error',
+      eqeqeq: ['error', 'smart'],
+      'no-var': 'error',
+      // Security-relevant defaults
+      'no-eval': 'error',
+      'no-implied-eval': 'error',
+      'no-new-func': 'error',
+      'no-proto': 'error',
     },
   },
   {
     files: ['tests/**/*.js'],
     languageOptions: {
-      globals: {
-        describe: 'readonly',
-        it: 'readonly',
-        expect: 'readonly',
-        jest: 'readonly',
-        beforeEach: 'readonly',
-        afterEach: 'readonly',
-        beforeAll: 'readonly',
-        afterAll: 'readonly',
-      },
-    },
-    rules: {
-      'no-console': 'off',
+      globals: { ...globals.node, ...globals.jest },
     },
   },
 ];

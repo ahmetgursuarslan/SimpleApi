@@ -1,5 +1,5 @@
 /* Simple migration runner: creates database (if needed) and customer table using customer.sql */
-require('dotenv').config();
+require('dotenv').config({ quiet: true });
 const fs = require('fs');
 const path = require('path');
 const mysql = require('mysql2/promise');

@@ -1,5 +1,6 @@
 module.exports = (app) => {
   const customers = require('../controllers/customer.controller.js');
+  const { requireApiKey } = require('../middleware/auth');
 
   /**
    * @openapi
@@ -117,6 +118,8 @@ module.exports = (app) => {
    *                 customer_surname: Veli
    *                 customer_age: 30
    *                 customer_gender: male
+   *     security:
+   *       - ApiKeyAuth: []
    *     responses:
    *       201:
    *         description: Created
@@ -124,8 +127,10 @@ module.exports = (app) => {
    *           application/json:
    *             schema:
    *               $ref: '#/components/schemas/Customer'
+   *       401:
+   *         description: Missing or invalid API key
    */
-  app.post('/api/customers', customers.validators.create, customers.create);
+  app.post('/api/customers', requireApiKey, customers.validators.create, customers.create);
 
   /**
    * @openapi
@@ -172,6 +177,8 @@ module.exports = (app) => {
    *                 customer_surname: VeliUpdated
    *                 customer_age: 31
    *                 customer_gender: male
+   *     security:
+   *       - ApiKeyAuth: []
    *     responses:
    *       200:
    *         description: Updated customer
@@ -179,8 +186,15 @@ module.exports = (app) => {
    *           application/json:
    *             schema:
    *               $ref: '#/components/schemas/Customer'
+   *       401:
+   *         description: Missing or invalid API key
    */
-  app.put('/api/customers/:customerId', customers.validators.update, customers.update);
+  app.put(
+    '/api/customers/:customerId',
+    requireApiKey,
+    customers.validators.update,
+    customers.update
+  );
 
   /**
    * @openapi
@@ -193,6 +207,8 @@ module.exports = (app) => {
    *         name: customerId
    *         required: true
    *         schema: { type: integer }
+   *     security:
+   *       - ApiKeyAuth: []
    *     responses:
    *       200:
    *         description: Delete result
@@ -202,16 +218,32 @@ module.exports = (app) => {
    *               type: object
    *               properties:
    *                 message: { type: string }
+   *       401:
+   *         description: Missing or invalid API key
    */
-  app.delete('/api/customers/:customerId', customers.validators.delete, customers.delete);
+  app.delete(
+    '/api/customers/:customerId',
+    requireApiKey,
+    customers.validators.delete,
+    customers.delete
+  );
 
   /**
    * @openapi
    * /api/customers:
    *   delete:
    *     summary: Delete all customers
+   *     description: Destructive. Requires an API key.
+   *     tags: [Customers]
+   *     security:
+   *       - ApiKeyAuth: []
+   *     responses:
+   *       200:
+   *         description: Delete result
+   *       401:
+   *         description: Missing or invalid API key
    */
-  app.delete('/api/customers', customers.deleteAll);
+  app.delete('/api/customers', requireApiKey, customers.deleteAll);
 
   /**
    * @openapi

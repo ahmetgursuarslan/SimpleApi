@@ -1,19 +1,23 @@
-// Ensure any DB pools or servers are closed after tests
+// Ensure any DB pools opened by the app are closed once the suite finishes,
+// otherwise Jest hangs on open handles.
+let pool;
 try {
-  const pool = require('../app/models/db');
-  if (pool && typeof pool.end === 'function') {
-    afterAll((done) => {
-      // end may be sync or callback-based depending on mock/real implementation
+  pool = require('../app/models/db');
+} catch {
+  pool = null;
+}
+
+if (pool && typeof pool.end === 'function') {
+  afterAll(async () => {
+    await new Promise((resolve) => {
       try {
-        const maybePromise = pool.end?.((err) => done());
+        const maybePromise = pool.end(() => resolve());
         if (maybePromise && typeof maybePromise.then === 'function') {
-          maybePromise.then(() => done()).catch(() => done());
+          maybePromise.then(resolve, resolve);
         }
-      } catch (_) {
-        done();
+      } catch {
+        resolve();
       }
     });
-  }
-} catch (e) {
-  // ignore
+  });
 }

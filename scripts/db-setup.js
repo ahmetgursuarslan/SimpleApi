@@ -1,18 +1,23 @@
 /* Runs migration then seed */
 const { spawn } = require('child_process');
 
-function run(cmd, args) {
+function run(scriptPath) {
   return new Promise((resolve, reject) => {
-    const p = spawn(cmd, args, { stdio: 'inherit', shell: true });
-    p.on('close', (code) =>
-      code === 0 ? resolve() : reject(new Error(`${cmd} ${args.join(' ')} exited ${code}`))
+    // No `shell: true`: arguments would be concatenated unescaped (DEP0190),
+    // and spawning node directly needs no shell.
+    const child = spawn(process.execPath, [scriptPath], { stdio: 'inherit' });
+    child.on('error', reject);
+    child.on('close', (code) =>
+      code === 0 ? resolve() : reject(new Error(`${scriptPath} exited with code ${code}`))
     );
   });
 }
 
+const here = require('path').resolve(__dirname);
+
 (async () => {
-  await run('node', ['scripts/migrate.js']);
-  await run('node', ['scripts/seed.js']);
+  await run(`${here}/migrate.js`);
+  await run(`${here}/seed.js`);
   console.log('Database setup complete.');
 })().catch((err) => {
   console.error(err);

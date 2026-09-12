@@ -20,8 +20,15 @@ jest.mock('../app/models/db.js', () => {
     cb(null, row ? [row] : []);
   }
   function insert(sql, params, cb) {
-    const obj = params;
-    const row = { id: mockIdSeq++, ...obj };
+    // INSERT ... (cols) VALUES (?, ?, ?, ?) - ordered positional params
+    const [customer_name, customer_surname, customer_age, customer_gender] = params;
+    const row = {
+      id: mockIdSeq++,
+      customer_name,
+      customer_surname,
+      customer_age,
+      customer_gender,
+    };
     mockStore.push(row);
     cb(null, { insertId: row.id });
   }
@@ -74,7 +81,7 @@ jest.mock('../app/models/db.js', () => {
         cb = params;
         params = [];
       }
-      if (sql.startsWith('INSERT INTO customer SET')) return insert(sql, params, cb);
+      if (sql.startsWith('INSERT INTO customer (')) return insert(sql, params, cb);
       if (sql.startsWith('SELECT COUNT(*) as total FROM customer'))
         return selectCount(sql, params, cb);
       if (sql.startsWith('SELECT * FROM customer WHERE id =')) return selectById(sql, params, cb);

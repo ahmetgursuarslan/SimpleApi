@@ -8,29 +8,61 @@ const Customer = function (customer) {
   this.customer_gender = customer.customer_gender;
 };
 
-Customer.create = (newCustomer, result) => {
-  pool.query('INSERT INTO customer SET ?', newCustomer, (err, res) => {
-    if (err) {
-      console.log('error: ', err);
-      result(err, null);
-      return;
-    }
+/**
+ * Own-property lookup. Plain-object maps inherit from Object.prototype, so a
+ * key like `constructor` or `toString` would otherwise resolve to a truthy
+ * built-in and flow into the SQL string.
+ */
+function own(map, key) {
+  return Object.prototype.hasOwnProperty.call(map, key) ? map[key] : undefined;
+}
 
-    console.log('created customer: ', { id: res.insertId, ...newCustomer });
-    result(null, { id: res.insertId, ...newCustomer });
-  });
+// `!` is used as the LIKE escape character instead of the default backslash so
+// the query behaves identically under MySQL's NO_BACKSLASH_ESCAPES sql_mode.
+const LIKE_ESCAPE = '!';
+
+/** Escape LIKE metacharacters so user input cannot widen the match. */
+function escapeLike(value) {
+  return String(value).replace(/[!%_]/g, (char) => `${LIKE_ESCAPE}${char}`);
+}
+
+/** True only for values explicitly supplied by the caller. */
+function isProvided(value) {
+  return value !== undefined && value !== null && value !== '';
+}
+
+Customer.create = (newCustomer, result) => {
+  // Explicit column list: independent of driver-side object expansion, and no
+  // stray key on the input object can become a column.
+  pool.query(
+    'INSERT INTO customer (customer_name, customer_surname, customer_age, customer_gender) VALUES (?, ?, ?, ?)',
+    [
+      newCustomer.customer_name,
+      newCustomer.customer_surname,
+      newCustomer.customer_age,
+      newCustomer.customer_gender,
+    ],
+    (err, res) => {
+      if (err) {
+        console.error('Customer.create failed:', err.message);
+        result(err, null);
+        return;
+      }
+
+      result(null, { id: res.insertId, ...newCustomer });
+    }
+  );
 };
 
 Customer.findById = (customerId, result) => {
   pool.query('SELECT * FROM customer WHERE id = ?', [customerId], (err, res) => {
     if (err) {
-      console.log('error: ', err);
+      console.error('Customer.findById failed:', err.message);
       result(err, null);
       return;
     }
 
     if (res.length) {
-      console.log('found customer: ', res[0]);
       result(null, res[0]);
       return;
     }
@@ -54,25 +86,28 @@ Customer.getAll = (options = {}, result) => {
     advancedFilter,
   } = options;
   const limit = Math.min(Math.max(parseInt(pageSize, 10) || 50, 1), 100);
-  const offset = Math.max(((parseInt(page, 10) || 1) - 1) * limit, 0);
+  const currentPage = Math.max(parseInt(page, 10) || 1, 1);
+  const offset = (currentPage - 1) * limit;
 
   // Build static WHERE clause and parameter list safely
   const clauses = [];
   const params = [];
   if (typeof search === 'string' && search.trim() !== '') {
-    clauses.push('(customer_name LIKE ? OR customer_surname LIKE ?)');
-    const like = `%${search}%`;
+    clauses.push(
+      `(customer_name LIKE ? ESCAPE '${LIKE_ESCAPE}' OR customer_surname LIKE ? ESCAPE '${LIKE_ESCAPE}')`
+    );
+    const like = `%${escapeLike(search)}%`;
     params.push(like, like);
   }
-  if (typeof gender === 'string') {
+  if (typeof gender === 'string' && gender !== '') {
     clauses.push('customer_gender = ?');
     params.push(gender);
   }
-  if (Number.isInteger(Number(minAge))) {
+  if (isProvided(minAge) && Number.isInteger(Number(minAge))) {
     clauses.push('customer_age >= ?');
     params.push(Number(minAge));
   }
-  if (Number.isInteger(Number(maxAge))) {
+  if (isProvided(maxAge) && Number.isInteger(Number(maxAge))) {
     clauses.push('customer_age <= ?');
     params.push(Number(maxAge));
   }
@@ -102,28 +137,32 @@ Customer.getAll = (options = {}, result) => {
   if (typeof advancedFilter === 'string' && advancedFilter.trim() !== '') {
     try {
       const parsed = JSON.parse(advancedFilter);
-      if (parsed && typeof parsed === 'object') {
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
         let added = 0;
-        for (const [key, valueRaw] of Object.entries(parsed)) {
+        for (const key of Object.keys(parsed)) {
           if (added >= maxConditions) break;
+          const valueRaw = parsed[key];
           const parts = String(key).split('.');
           if (parts.length !== 2) continue;
           const [fieldKey, opKey] = parts;
-          const col = fieldMap[fieldKey];
-          const allowedOps = allowedOpsByField[fieldKey];
-          const sqlOp = opMap[opKey];
-          if (!col || !allowedOps || !allowedOps.has(opKey) || !sqlOp) continue; // skip non-whitelisted
+          const col = own(fieldMap, fieldKey);
+          const allowedOps = own(allowedOpsByField, fieldKey);
+          const sqlOp = own(opMap, opKey);
+          if (!col || !allowedOps || !sqlOp || !allowedOps.has(opKey)) continue; // skip non-whitelisted
 
           // Coerce/validate value by field type and operator
           if (sqlOp === 'IN') {
             if (!Array.isArray(valueRaw) || valueRaw.length === 0) continue;
             let arr = valueRaw.slice(0, maxInItems);
             if (fieldKey === 'id' || fieldKey === 'age') {
-              arr = arr.map((v) => Number(v)).filter((n) => Number.isFinite(n));
+              arr = arr.map((v) => Number(v)).filter((n) => Number.isInteger(n));
             } else if (fieldKey === 'gender') {
               arr = arr.map((v) => String(v).toLowerCase().trim()).filter((s) => genderSet.has(s));
-            } else if (fieldKey === 'name' || fieldKey === 'surname') {
-              arr = arr.map((v) => String(v).trim()).filter((s) => s.length > 0 && s.length <= 100);
+            } else {
+              arr = arr
+                .filter((v) => typeof v === 'string' || typeof v === 'number')
+                .map((v) => String(v).trim())
+                .filter((s) => s.length > 0 && s.length <= 100);
             }
             // Deduplicate
             arr = Array.from(new Set(arr));
@@ -136,13 +175,15 @@ Customer.getAll = (options = {}, result) => {
             let val;
             if (fieldKey === 'id' || fieldKey === 'age') {
               const n = Number(valueRaw);
-              if (!Number.isFinite(n)) continue;
+              if (typeof valueRaw === 'boolean' || !Number.isInteger(n)) continue;
               val = n;
             } else if (fieldKey === 'gender') {
-              const s = String(valueRaw).toLowerCase().trim();
+              if (typeof valueRaw !== 'string') continue;
+              const s = valueRaw.toLowerCase().trim();
               if (!genderSet.has(s)) continue;
               val = s;
-            } else if (fieldKey === 'name' || fieldKey === 'surname') {
+            } else {
+              if (typeof valueRaw !== 'string' && typeof valueRaw !== 'number') continue;
               const s = String(valueRaw).trim();
               if (!s || s.length > 100) continue;
               val = s;
@@ -154,7 +195,7 @@ Customer.getAll = (options = {}, result) => {
           }
         }
       }
-    } catch (_e) {
+    } catch {
       // ignore invalid JSON
     }
   }
@@ -162,44 +203,45 @@ Customer.getAll = (options = {}, result) => {
   const whereClause = clauses.length ? `WHERE ${clauses.join(' AND ')}` : '';
   const sqlCount = `SELECT COUNT(*) as total FROM customer ${whereClause}`;
   // Whitelist mapping for sort columns
-  const sortMap = {
-    id: 'id',
-    name: 'customer_name',
-    surname: 'customer_surname',
-    age: 'customer_age',
-    gender: 'customer_gender',
-  };
-  const col = sortMap[sortBy] || 'id';
+  const sortColumn = own(fieldMap, sortBy) || 'id';
   const dir = String(order).toLowerCase() === 'asc' ? 'ASC' : 'DESC';
   // Field selection whitelist (reuse map)
   let selectCols = '*';
   if (typeof fields === 'string' && fields.trim() !== '') {
-    const requested = fields
+    const mapped = fields
       .split(',')
       .map((s) => s.trim())
+      .filter(Boolean)
+      .map((k) => own(fieldMap, k))
       .filter(Boolean);
-    const mapped = requested.map((k) => fieldMap[k]).filter(Boolean);
-    if (mapped.length) selectCols = mapped.join(', ');
+    if (mapped.length) selectCols = Array.from(new Set(mapped)).join(', ');
   }
-  const sqlQuery = `SELECT ${selectCols} FROM customer ${whereClause} ORDER BY ${col} ${dir} LIMIT ? OFFSET ?`;
+  const sqlQuery = `SELECT ${selectCols} FROM customer ${whereClause} ORDER BY ${sortColumn} ${dir} LIMIT ? OFFSET ?`;
 
   pool.query(sqlCount, params, (err, countRows) => {
     if (err) {
-      console.log('error: ', err);
+      console.error('Customer.getAll count failed:', err.message);
       result(err, null);
       return;
     }
     const total = countRows[0]?.total || 0;
     pool.query(sqlQuery, [...params, limit, offset], (qErr, rows) => {
       if (qErr) {
-        console.log('error: ', qErr);
+        console.error('Customer.getAll query failed:', qErr.message);
         result(qErr, null);
         return;
       }
       // Meta: returnedFieldsCount and totalPages
       const returnedFieldsCount = Array.isArray(rows) && rows[0] ? Object.keys(rows[0]).length : 0;
       const totalPages = Math.ceil(total / (limit || 1));
-      result(null, { data: rows, page, pageSize: limit, total, totalPages, returnedFieldsCount });
+      result(null, {
+        data: rows,
+        page: currentPage,
+        pageSize: limit,
+        total,
+        totalPages,
+        returnedFieldsCount,
+      });
     });
   });
 };
@@ -216,19 +258,18 @@ Customer.updateById = (id, customer, result) => {
     ],
     (err, res) => {
       if (err) {
-        console.log('error: ', err);
-        result(null, err);
+        console.error('Customer.updateById failed:', err.message);
+        result(err, null);
         return;
       }
 
-      if (res.affectedRows == 0) {
+      if (res.affectedRows === 0) {
         // not found Customer with the id
         result({ kind: 'not_found' }, null);
         return;
       }
 
-      console.log('updated customer: ', { id: id, ...customer });
-      result(null, { id: id, ...customer });
+      result(null, { id: Number(id), ...customer });
     }
   );
 };
@@ -236,18 +277,17 @@ Customer.updateById = (id, customer, result) => {
 Customer.remove = (id, result) => {
   pool.query('DELETE FROM customer WHERE id = ?', [id], (err, res) => {
     if (err) {
-      console.log('error: ', err);
-      result(null, err);
+      console.error('Customer.remove failed:', err.message);
+      result(err, null);
       return;
     }
 
-    if (res.affectedRows == 0) {
+    if (res.affectedRows === 0) {
       // not found Customer with the id
       result({ kind: 'not_found' }, null);
       return;
     }
 
-    console.log('deleted customer with id: ', id);
     result(null, res);
   });
 };
@@ -255,17 +295,14 @@ Customer.remove = (id, result) => {
 Customer.removeAll = (result) => {
   pool.query('DELETE FROM customer', (err, res) => {
     if (err) {
-      console.log('error: ', err);
-      result(null, err);
+      console.error('Customer.removeAll failed:', err.message);
+      result(err, null);
       return;
     }
 
-    console.log(`deleted ${res.affectedRows} customer`);
     result(null, res);
   });
 };
-
-module.exports = Customer;
 
 // Analytics helpers
 Customer.statsByGender = (result) => {
@@ -273,7 +310,7 @@ Customer.statsByGender = (result) => {
     'SELECT customer_gender AS gender, COUNT(*) AS count FROM customer GROUP BY customer_gender';
   pool.query(sql, (err, rows) => {
     if (err) {
-      console.log('error: ', err);
+      console.error('Customer.statsByGender failed:', err.message);
       result(err, null);
       return;
     }
@@ -286,7 +323,7 @@ Customer.statsByAgeBins = (result) => {
   const sql = 'SELECT customer_age FROM customer';
   pool.query(sql, (err, rows) => {
     if (err) {
-      console.log('error: ', err);
+      console.error('Customer.statsByAgeBins failed:', err.message);
       result(err, null);
       return;
     }
@@ -308,3 +345,5 @@ Customer.statsByAgeBins = (result) => {
     result(null, bins);
   });
 };
+
+module.exports = Customer;

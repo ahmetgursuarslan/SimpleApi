@@ -26,7 +26,13 @@ const pool = mysql.createPool({
 if (!isTest) {
   pool.getConnection((err, conn) => {
     if (err) {
-      console.error('Database connection failed:', err.message);
+      // A host resolving to IPv4 and IPv6 fails with an AggregateError whose
+      // message is empty; the code (ECONNREFUSED, ER_ACCESS_DENIED_ERROR) is
+      // what tells the operator what went wrong.
+      console.error(
+        'Database connection failed:',
+        [err.code, err.message].filter(Boolean).join(' ')
+      );
     } else {
       console.log('Successfully connected to the database.');
       conn.release();

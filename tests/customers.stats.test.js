@@ -58,11 +58,18 @@ jest.mock('../app/models/db.js', () => {
     mockIdSeq = 1;
     cb(null, { affectedRows: affected });
   }
-  function selectAges(sql, params, cb) {
-    // SELECT customer_age FROM customer
+  function selectAgeBins(sql, params, cb) {
+    // Mirrors the CASE ... GROUP BY bin query: one row per non-empty bin.
+    const binOf = (age) =>
+      age <= 17 ? '0-17' : age <= 25 ? '18-25' : age <= 40 ? '26-40' : age <= 65 ? '41-65' : '66+';
+    const map = {};
+    for (const r of mockStore) {
+      const bin = binOf(r.customer_age);
+      map[bin] = (map[bin] || 0) + 1;
+    }
     cb(
       null,
-      mockStore.map(({ customer_age }) => ({ customer_age }))
+      Object.entries(map).map(([bin, count]) => ({ bin, count }))
     );
   }
   function selectGenderGroup(sql, params, cb) {
@@ -89,7 +96,7 @@ jest.mock('../app/models/db.js', () => {
       if (sql.startsWith('UPDATE customer SET')) return update(sql, params, cb);
       if (sql.startsWith('DELETE FROM customer WHERE id =')) return delOne(sql, params, cb);
       if (sql.startsWith('DELETE FROM customer')) return delAll(sql, params, cb);
-      if (sql.startsWith('SELECT customer_age FROM customer')) return selectAges(sql, params, cb);
+      if (sql.startsWith('SELECT CASE')) return selectAgeBins(sql, params, cb);
       if (sql.startsWith('SELECT customer_gender AS gender'))
         return selectGenderGroup(sql, params, cb);
       cb(null, []);
@@ -156,5 +163,16 @@ describe('Customers analytics endpoints (mocked DB)', () => {
     expect(bins['26-40']).toBe(1);
     expect(bins['41-65']).toBe(1);
     expect(bins['66+']).toBe(1);
+  });
+
+  it('GET /api/customers/stats/age reports empty bins as zero', async () => {
+    mockPool.__mockReset();
+    mockPool.__mockSeed([
+      { customer_name: 'F', customer_surname: '6', customer_age: 18, customer_gender: 'male' },
+      { customer_name: 'G', customer_surname: '7', customer_age: 25, customer_gender: 'male' },
+    ]);
+    const res = await request(app).get('/api/customers/stats/age');
+    expect(res.status).toBe(200);
+    expect(res.body.data).toEqual({ '0-17': 0, '18-25': 2, '26-40': 0, '41-65': 0, '66+': 0 });
   });
 });

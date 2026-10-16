@@ -13,7 +13,13 @@ services:
       - db_data:/var/lib/mysql
       - ./customer.sql:/docker-entrypoint-initdb.d/1_customer.sql:ro
     healthcheck:
-      test: ['CMD', 'mysqladmin', 'ping', '-h', '127.0.0.1', '-p${DB_PASSWORD}']
+      # Password via MYSQL_PWD from the container's own env, not as a `-p` argument
+      # that any process listing (and the rendered compose config) would show.
+      test:
+        [
+          'CMD-SHELL',
+          'MYSQL_PWD="$$MYSQL_ROOT_PASSWORD" mysqladmin ping -h 127.0.0.1 -uroot --silent',
+        ]
       interval: 10s
       timeout: 5s
       retries: 10
@@ -41,6 +47,9 @@ services:
       - '3000:3000'
     security_opt:
       - no-new-privileges:true
+    # Node needs no Linux capabilities to serve on an unprivileged port.
+    cap_drop:
+      - ALL
     read_only: true
     tmpfs:
       - /tmp

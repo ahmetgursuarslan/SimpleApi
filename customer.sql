@@ -13,5 +13,8 @@ CREATE TABLE IF NOT EXISTS customer (
 	KEY idx_customer_surname (customer_surname)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+-- Starter row only for an empty table, so re-running `npm run db:migrate`
+-- does not add a duplicate every time.
 INSERT INTO customer (customer_name, customer_surname, customer_age, customer_gender)
-VALUES ('Jonas', 'Dark', 18, 'male');
+SELECT 'Jonas', 'Dark', 18, 'male' FROM DUAL
+WHERE NOT EXISTS (SELECT 1 FROM customer);

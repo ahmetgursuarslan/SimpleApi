@@ -1,3 +1,5 @@
+const http = require('node:http');
+const path = require('node:path');
 const env = require('./config/env');
 const express = require('express');
 const helmet = require('helmet');
@@ -163,7 +165,9 @@ if (env.ENABLE_DOCS) {
         },
       },
     },
-    apis: ['./app/routes/*.js'],
+    // Absolute (and forward-slashed for the glob) so the spec does not come
+    // out empty when the process is started from another directory.
+    apis: [path.join(__dirname, 'routes', '*.js').split(path.sep).join('/')],
   });
 
   // Swagger UI ships inline styles; scope the looser policy to /docs only.
@@ -190,9 +194,23 @@ app.use((req, res) => {
   res.status(404).json({ message: 'Not Found' });
 });
 
+/**
+ * Only real HTTP error codes reach the client. Anything else (a driver error
+ * with `status: 'ECONNREFUSED'`, `statusCode: 200`, `999`) becomes a 500, and
+ * `res.status()` never sees a value it would throw on.
+ */
+function errorStatus(err) {
+  const status = Number(err?.status ?? err?.statusCode);
+  return Number.isInteger(status) && status >= 400 && status <= 599 ? status : 500;
+}
+
 // Centralized error handler (4 args required for Express to treat it as one)
-app.use((err, req, res, _next) => {
-  const status = err.status || err.statusCode || 500;
+app.use((err, req, res, next) => {
+  // Headers already sent (e.g. a streaming response failed midway): only
+  // Express's default handler can safely abort the connection.
+  if (res.headersSent) return next(err);
+
+  const status = errorStatus(err);
 
   if (status >= 500) {
     console.error('Unhandled error:', err);
@@ -200,8 +218,14 @@ app.use((err, req, res, _next) => {
 
   // 5xx messages come from the driver or the runtime and leak SQL text, file
   // paths and connection details, so clients only ever see a generic string.
-  // 4xx messages are authored for clients (validation, CORS, payload limits).
-  const message = status >= 500 ? 'Internal Server Error' : err.message || 'Bad Request';
+  // 4xx messages are authored for clients (validation, CORS, payload limits),
+  // unless the error explicitly opts out with `expose: false`.
+  const exposeMessage = status < 500 && err?.expose !== false && err?.message;
+  const message = exposeMessage
+    ? err.message
+    : status === 500
+      ? 'Internal Server Error'
+      : http.STATUS_CODES[status] || 'Error';
 
   res.status(status).json({ message });
 });

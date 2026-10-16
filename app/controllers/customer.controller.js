@@ -1,11 +1,30 @@
 const Customer = require('../models/customer.model.js');
 const { celebrate, Joi, Segments } = require('celebrate');
 
+/**
+ * `advancedFilter` must be a JSON object. Rejecting anything else (instead of
+ * silently dropping it) keeps a typo from turning a filtered query into a full
+ * table listing.
+ */
+function jsonObject(value, helpers) {
+  let parsed;
+  try {
+    parsed = JSON.parse(value);
+  } catch {
+    return helpers.error('any.invalid');
+  }
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    return helpers.error('any.invalid');
+  }
+  return value;
+}
+
 // Validation schemas
 const customerBodySchema = {
   [Segments.BODY]: Joi.object({
-    customer_name: Joi.string().min(1).max(100).required(),
-    customer_surname: Joi.string().min(1).max(100).required(),
+    // trim() first so whitespace-only names fail min(1) instead of being stored.
+    customer_name: Joi.string().trim().min(1).max(100).required(),
+    customer_surname: Joi.string().trim().min(1).max(100).required(),
     customer_age: Joi.number().integer().min(0).max(130).required(),
     customer_gender: Joi.string().valid('male', 'female', 'other').required(),
   }),
@@ -19,19 +38,24 @@ const idParamSchema = {
 
 const listQuerySchema = {
   [Segments.QUERY]: Joi.object({
-    page: Joi.number().integer().min(1).default(1),
+    page: Joi.number().integer().min(1).max(Customer.MAX_PAGE).default(1),
     pageSize: Joi.number().integer().min(1).max(100).default(50),
     search: Joi.string().max(100).optional(),
     sortBy: Joi.string().valid('id', 'name', 'surname', 'age', 'gender').default('id'),
     order: Joi.string().valid('asc', 'desc').default('desc'),
     // Filters
     gender: Joi.string().valid('male', 'female', 'other').optional(),
-    minAge: Joi.number().integer().min(0).optional(),
+    minAge: Joi.number().integer().min(0).max(130).optional(),
     maxAge: Joi.number().integer().min(0).max(130).optional(),
     // Select fields (comma-separated of whitelist keys)
     fields: Joi.string().max(200).optional(),
-    // Advanced filter as JSON string. Will be parsed and validated server-side
-    advancedFilter: Joi.string().max(2000).optional(),
+    // Advanced filter as a JSON object string; individual conditions are
+    // whitelisted and type-checked in the model.
+    advancedFilter: Joi.string()
+      .max(2000)
+      .custom(jsonObject)
+      .messages({ 'any.invalid': '"advancedFilter" must be a JSON object' })
+      .optional(),
   }),
 };
 

@@ -33,7 +33,7 @@ SimpleApi demonstrates production-ready patterns with Express + MySQL: secure co
 
 ### Requirements
 
-- Node.js >= 20 (Express 5 and celebrate 16 require it)
+- Node.js 20.19+ or 22.12+ (celebrate 16 is ESM-only and is loaded via `require(esm)`)
 - MySQL 8
 
 ### Getting started
@@ -100,29 +100,31 @@ Behaviour when `API_KEY` is not set:
 
 Full list with defaults lives in `.env.example`.
 
-| Variable                                     | Default                        | Notes                                                           |
-| -------------------------------------------- | ------------------------------ | --------------------------------------------------------------- |
-| `PORT`                                       | `3000`                         |                                                                 |
-| `NODE_ENV`                                   | `development`                  | `production` tightens several defaults                          |
-| `API_KEY`                                    | _(unset)_                      | Required for writes; production fails closed without it         |
-| `DB_HOST` / `DB_USER` / `DB_PASSWORD`        | `localhost` / `root` / _empty_ |                                                                 |
-| `DB_NAME` / `DB_PORT`                        | `simpleapi` / `3306`           |                                                                 |
-| `DB_CONNECTION_LIMIT` / `DB_CONNECT_TIMEOUT` | `10` / `10000`                 |                                                                 |
-| `DB_SSL` / `DB_SSL_REJECT_UNAUTHORIZED`      | `false` / `true`               | Enable TLS for any non-local database                           |
-| `CORS_ORIGINS`                               | `*` in dev, empty in prod      | Comma-separated. `*` is rejected in production                  |
-| `CORS_CREDENTIALS`                           | `false`                        | Cannot be combined with `*` — the app refuses to start          |
-| `RATE_LIMIT_WINDOW_MS`                       | `900000`                       |                                                                 |
-| `RATE_LIMIT_MAX`                             | `100` prod / `1000` dev        | `/api/*` budget; other paths get 5x                             |
-| `TRUST_PROXY`                                | `false`                        | `true`, a hop count, or a CIDR list. Only enable behind a proxy |
-| `BODY_LIMIT`                                 | `100kb`                        | Max request body size                                           |
-| `ENABLE_DOCS`                                | on in dev, off in prod         | Serves Swagger UI at `/docs`                                    |
-| `ENABLE_ECHO`                                | on in dev, off in prod         | Serves the `/api/echo` debug endpoint                           |
-| `SWAGGER_SERVER_URL`                         | `http://localhost:PORT`        | Set when behind a proxy or on another host                      |
+| Variable                                     | Default                        | Notes                                                        |
+| -------------------------------------------- | ------------------------------ | ------------------------------------------------------------ |
+| `PORT`                                       | `3000`                         |                                                              |
+| `NODE_ENV`                                   | `development`                  | `production` tightens several defaults                       |
+| `API_KEY`                                    | _(unset)_                      | Required for writes; production fails closed without it      |
+| `DB_HOST` / `DB_USER` / `DB_PASSWORD`        | `localhost` / `root` / _empty_ |                                                              |
+| `DB_NAME` / `DB_PORT`                        | `simpleapi` / `3306`           |                                                              |
+| `DB_CONNECTION_LIMIT` / `DB_CONNECT_TIMEOUT` | `10` / `10000`                 |                                                              |
+| `DB_SSL` / `DB_SSL_REJECT_UNAUTHORIZED`      | `false` / `true`               | Enable TLS for any non-local database                        |
+| `CORS_ORIGINS`                               | `*` in dev, empty in prod      | Comma-separated. `*` is rejected in production               |
+| `CORS_CREDENTIALS`                           | `false`                        | Cannot be combined with `*` — the app refuses to start       |
+| `RATE_LIMIT_WINDOW_MS`                       | `900000`                       |                                                              |
+| `RATE_LIMIT_MAX`                             | `100` prod / `1000` dev        | `/api/*` budget; other paths get 5x                          |
+| `TRUST_PROXY`                                | `false`                        | Hop count (`1` = one proxy), CIDR list, or `true`. See below |
+| `BODY_LIMIT`                                 | `100kb`                        | Max request body size                                        |
+| `ENABLE_DOCS`                                | on in dev, off in prod         | Serves Swagger UI at `/docs`                                 |
+| `ENABLE_ECHO`                                | on in dev, off in prod         | Serves the `/api/echo` debug endpoint                        |
+| `SWAGGER_SERVER_URL`                         | `http://localhost:PORT`        | Set when behind a proxy or on another host                   |
 
 > **`TRUST_PROXY` matters for rate limiting.** Leave it `false` when the app is
 > directly exposed: enabling it lets clients forge `X-Forwarded-For` and get a
 > fresh rate-limit bucket per request. Set it only when a proxy you control
-> rewrites that header.
+> rewrites that header, and prefer the narrowest value: `1` for a single load
+> balancer, or its CIDR. Numbers are always hop counts; `true` trusts every hop
+> and is only safe if nothing can reach the app except through your proxies.
 
 ### API docs
 
@@ -168,12 +170,12 @@ unless `ENABLE_ECHO` / `ENABLE_DOCS` are explicitly turned on.
 
 Query parameters (all optional):
 
-- Pagination: `page`, `pageSize`
+- Pagination: `page` (max 10000), `pageSize` (max 100)
 - Search: `search` (applies to name or surname using LIKE)
 - Sorting: `sortBy` in [id, name, surname, age, gender], `order` in [asc, desc]
 - Basic filters: `gender` in [male, female, other], `minAge`, `maxAge`
 - Field selection: `fields` as comma-separated values from [id, name, surname, age, gender]
-- Advanced filtering: `advancedFilter` as a JSON string with whitelisted fields/operators
+- Advanced filtering: `advancedFilter` as a JSON object string with whitelisted fields/operators (anything that is not a JSON object is a `400`)
 
 Response metadata:
 
@@ -207,7 +209,7 @@ Response metadata:
 **Queries**
 
 - All DB queries are parameterized (`?`). User input is never concatenated into SQL strings.
-- `advancedFilter` is protected by field/operator whitelists, type/length validation, and limits (max conditions and IN-list size). Invalid keys are ignored.
+- `advancedFilter` is protected by field/operator whitelists, type/length validation, and limits (max conditions and IN-list size). A value that is not a JSON object is rejected with `400`, so a malformed filter never silently returns the unfiltered list; non-whitelisted keys inside a valid object are ignored.
 - Whitelist lookups use own-property checks, so keys like `constructor` or `__proto__` cannot resolve to an inherited value and reach the SQL string.
 - `search` escapes LIKE metacharacters (`%`, `_`) with an explicit `ESCAPE '!'`, so input cannot widen the match or force a scan.
 - `sortBy`, `order` and `fields` use whitelists so only allowed columns/directions are applied to SQL.
@@ -249,7 +251,7 @@ The image runs as the non-root `node` user with a read-only root filesystem, and
 ### Database schema
 
 - The API expects a `customer` table: `id` (PK, AUTO_INCREMENT), `customer_name`, `customer_surname`, `customer_age`, `customer_gender` (ENUM: male, female, other).
-- See `customer.sql` for schema and a starter row.
+- See `customer.sql` for schema and a starter row (inserted only into an empty table, so re-running the migration is safe).
 
 ### Testing & linting
 
@@ -301,7 +303,7 @@ SimpleApi, Express + MySQL ile üretime hazır kalıpları gösterir: güvenli y
 
 ### Gereksinimler
 
-- Node.js >= 20 (Express 5 ve celebrate 16 bunu gerektirir)
+- Node.js 20.19+ veya 22.12+ (celebrate 16 yalnızca ESM; `require(esm)` ile yüklenir)
 - MySQL 8
 
 ### Başlangıç
@@ -368,29 +370,32 @@ Authorization: Bearer <anahtarınız>
 
 Varsayılanların tam listesi `.env.example` içindedir.
 
-| Değişken                                     | Varsayılan                   | Not                                                            |
-| -------------------------------------------- | ---------------------------- | -------------------------------------------------------------- |
-| `PORT`                                       | `3000`                       |                                                                |
-| `NODE_ENV`                                   | `development`                | `production` birçok varsayılanı sıkılaştırır                   |
-| `API_KEY`                                    | _(tanımsız)_                 | Yazma için gerekli; üretimde yoksa yazma kapalıdır             |
-| `DB_HOST` / `DB_USER` / `DB_PASSWORD`        | `localhost` / `root` / _boş_ |                                                                |
-| `DB_NAME` / `DB_PORT`                        | `simpleapi` / `3306`         |                                                                |
-| `DB_CONNECTION_LIMIT` / `DB_CONNECT_TIMEOUT` | `10` / `10000`               |                                                                |
-| `DB_SSL` / `DB_SSL_REJECT_UNAUTHORIZED`      | `false` / `true`             | Yerel olmayan her veritabanı için TLS açın                     |
-| `CORS_ORIGINS`                               | dev'de `*`, prod'da boş      | Virgülle ayrılır. `*` üretimde reddedilir                      |
-| `CORS_CREDENTIALS`                           | `false`                      | `*` ile birlikte kullanılamaz — uygulama başlamayı reddeder    |
-| `RATE_LIMIT_WINDOW_MS`                       | `900000`                     |                                                                |
-| `RATE_LIMIT_MAX`                             | prod `100` / dev `1000`      | `/api/*` bütçesi; diğer yollar 5 katı                          |
-| `TRUST_PROXY`                                | `false`                      | `true`, hop sayısı veya CIDR listesi. Yalnızca proxy arkasında |
-| `BODY_LIMIT`                                 | `100kb`                      | En büyük istek gövdesi                                         |
-| `ENABLE_DOCS`                                | dev'de açık, prod'da kapalı  | `/docs` altında Swagger UI                                     |
-| `ENABLE_ECHO`                                | dev'de açık, prod'da kapalı  | `/api/echo` hata ayıklama ucu                                  |
-| `SWAGGER_SERVER_URL`                         | `http://localhost:PORT`      | Proxy arkasında veya farklı hostta ayarlayın                   |
+| Değişken                                     | Varsayılan                   | Not                                                                   |
+| -------------------------------------------- | ---------------------------- | --------------------------------------------------------------------- |
+| `PORT`                                       | `3000`                       |                                                                       |
+| `NODE_ENV`                                   | `development`                | `production` birçok varsayılanı sıkılaştırır                          |
+| `API_KEY`                                    | _(tanımsız)_                 | Yazma için gerekli; üretimde yoksa yazma kapalıdır                    |
+| `DB_HOST` / `DB_USER` / `DB_PASSWORD`        | `localhost` / `root` / _boş_ |                                                                       |
+| `DB_NAME` / `DB_PORT`                        | `simpleapi` / `3306`         |                                                                       |
+| `DB_CONNECTION_LIMIT` / `DB_CONNECT_TIMEOUT` | `10` / `10000`               |                                                                       |
+| `DB_SSL` / `DB_SSL_REJECT_UNAUTHORIZED`      | `false` / `true`             | Yerel olmayan her veritabanı için TLS açın                            |
+| `CORS_ORIGINS`                               | dev'de `*`, prod'da boş      | Virgülle ayrılır. `*` üretimde reddedilir                             |
+| `CORS_CREDENTIALS`                           | `false`                      | `*` ile birlikte kullanılamaz — uygulama başlamayı reddeder           |
+| `RATE_LIMIT_WINDOW_MS`                       | `900000`                     |                                                                       |
+| `RATE_LIMIT_MAX`                             | prod `100` / dev `1000`      | `/api/*` bütçesi; diğer yollar 5 katı                                 |
+| `TRUST_PROXY`                                | `false`                      | Hop sayısı (`1` = tek proxy), CIDR listesi veya `true`. Aşağıya bakın |
+| `BODY_LIMIT`                                 | `100kb`                      | En büyük istek gövdesi                                                |
+| `ENABLE_DOCS`                                | dev'de açık, prod'da kapalı  | `/docs` altında Swagger UI                                            |
+| `ENABLE_ECHO`                                | dev'de açık, prod'da kapalı  | `/api/echo` hata ayıklama ucu                                         |
+| `SWAGGER_SERVER_URL`                         | `http://localhost:PORT`      | Proxy arkasında veya farklı hostta ayarlayın                          |
 
 > **`TRUST_PROXY` rate limit için kritiktir.** Uygulama doğrudan dışarı açıksa
 > `false` bırakın: açtığınızda istemciler `X-Forwarded-For` başlığını taklit edip
 > her istekte yeni bir limit kovası alabilir. Yalnızca bu başlığı sizin
-> kontrolünüzdeki bir proxy yazıyorsa açın.
+> kontrolünüzdeki bir proxy yazıyorsa açın ve en dar değeri seçin: tek bir load
+> balancer için `1` ya da onun CIDR'ı. Sayılar her zaman hop sayısıdır; `true`
+> tüm hop'lara güvenir ve yalnızca uygulamaya proxy'leriniz dışında hiçbir yoldan
+> erişilemiyorsa güvenlidir.
 
 ### API Dokümantasyonu
 
@@ -436,12 +441,12 @@ açıkça açılmadıkça üretimde `404` döner.
 
 Sorgu parametreleri (hepsi opsiyonel):
 
-- Sayfalama: `page`, `pageSize`
+- Sayfalama: `page` (en fazla 10000), `pageSize` (en fazla 100)
 - Arama: `search` (isim veya soyisim üzerinde LIKE)
 - Sıralama: `sortBy` [id, name, surname, age, gender], `order` [asc, desc]
 - Temel filtreler: `gender` [male, female, other], `minAge`, `maxAge`
 - Alan seçimi: `fields` — [id, name, surname, age, gender] listesinden virgülle ayrılmış
-- Gelişmiş filtreleme: `advancedFilter` — whitelist alan/operatörlerle JSON string
+- Gelişmiş filtreleme: `advancedFilter` — whitelist alan/operatörlerle JSON nesnesi string’i (JSON nesnesi olmayan değer `400` döner)
 
 Yanıt meta bilgisi:
 
@@ -475,7 +480,7 @@ Yanıt meta bilgisi:
 **Sorgular**
 
 - Tüm DB sorguları parametreli (`?`) çalışır; kullanıcı girdisi SQL stringine eklenmez.
-- `advancedFilter` alan/operatör whitelist’i, tip/uzunluk doğrulaması ve limitlerle korunur (maks. koşul sayısı ve IN listesi boyutu). Geçersiz anahtarlar yok sayılır.
+- `advancedFilter` alan/operatör whitelist’i, tip/uzunluk doğrulaması ve limitlerle korunur (maks. koşul sayısı ve IN listesi boyutu). JSON nesnesi olmayan değer `400` ile reddedilir; böylece bozuk bir filtre sessizce filtresiz listeyi döndürmez. Geçerli bir nesnedeki whitelist dışı anahtarlar yok sayılır.
 - Whitelist aramaları own-property kontrolü yapar; `constructor` veya `__proto__` gibi anahtarlar prototipten bir değere çözülüp SQL stringine ulaşamaz.
 - `search` içindeki LIKE meta karakterleri (`%`, `_`) açık `ESCAPE '!'` ile kaçırılır; girdi eşleşmeyi genişletemez veya tarama zorlayamaz.
 - `sortBy`, `order` ve `fields` whitelist kullanır; yalnızca izinli kolon/yön SQL’e girer.
@@ -517,7 +522,7 @@ docker compose up --build
 ### Veritabanı Şeması
 
 - API bir `customer` tablosu bekler: `id` (PK, AUTO_INCREMENT), `customer_name`, `customer_surname`, `customer_age`, `customer_gender` (ENUM: male, female, other).
-- Şema ve örnek kayıt için `customer.sql` dosyasına bakın.
+- Şema ve örnek kayıt için `customer.sql` dosyasına bakın (örnek kayıt yalnızca tablo boşsa eklenir; migration tekrar çalıştırılabilir).
 
 ### Test & Lint
 

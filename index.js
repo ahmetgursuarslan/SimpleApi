@@ -14,7 +14,7 @@ server.on('error', (err) => {
 let shuttingDown = false;
 
 /** Drain in-flight requests and close the pool so no work is lost on deploy. */
-function shutdown(signal) {
+function shutdown(signal, exitCode = 0) {
   if (shuttingDown) return;
   shuttingDown = true;
   console.log(`${signal} received, shutting down gracefully...`);
@@ -30,7 +30,7 @@ function shutdown(signal) {
     pool.end((poolErr) => {
       if (poolErr) console.error('Error closing database pool:', poolErr.message);
       clearTimeout(forceExit);
-      process.exit(closeErr || poolErr ? 1 : 0);
+      process.exit(closeErr || poolErr ? 1 : exitCode);
     });
   });
 }
@@ -39,13 +39,16 @@ for (const signal of ['SIGTERM', 'SIGINT']) {
   process.on(signal, () => shutdown(signal));
 }
 
+// Same policy as an uncaught exception (and Node's own default): the process is
+// in an unknown state, so drain and exit and let the supervisor restart it.
 process.on('unhandledRejection', (reason) => {
   console.error('Unhandled promise rejection:', reason);
+  shutdown('unhandledRejection', 1);
 });
 
 process.on('uncaughtException', (err) => {
   console.error('Uncaught exception:', err);
-  shutdown('uncaughtException');
+  shutdown('uncaughtException', 1);
 });
 
 module.exports = { server };

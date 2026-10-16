@@ -17,6 +17,10 @@ function own(map, key) {
   return Object.prototype.hasOwnProperty.call(map, key) ? map[key] : undefined;
 }
 
+// Deep pages turn into huge OFFSET scans; nobody pages this far by hand. The
+// controller rejects larger values, this clamp guards direct model callers.
+Customer.MAX_PAGE = 10000;
+
 // `!` is used as the LIKE escape character instead of the default backslash so
 // the query behaves identically under MySQL's NO_BACKSLASH_ESCAPES sql_mode.
 const LIKE_ESCAPE = '!';
@@ -86,7 +90,7 @@ Customer.getAll = (options = {}, result) => {
     advancedFilter,
   } = options;
   const limit = Math.min(Math.max(parseInt(pageSize, 10) || 50, 1), 100);
-  const currentPage = Math.max(parseInt(page, 10) || 1, 1);
+  const currentPage = Math.min(Math.max(parseInt(page, 10) || 1, 1), Customer.MAX_PAGE);
   const offset = (currentPage - 1) * limit;
 
   // Build static WHERE clause and parameter list safely
@@ -318,15 +322,26 @@ Customer.statsByGender = (result) => {
   });
 };
 
+// Binning happens in SQL so the response costs one row per bin instead of
+// pulling every customer row into memory on an unauthenticated endpoint.
+const AGE_BINS_SQL = `SELECT CASE
+    WHEN customer_age <= 17 THEN '0-17'
+    WHEN customer_age <= 25 THEN '18-25'
+    WHEN customer_age <= 40 THEN '26-40'
+    WHEN customer_age <= 65 THEN '41-65'
+    ELSE '66+'
+  END AS bin, COUNT(*) AS count
+  FROM customer
+  GROUP BY bin`;
+
 Customer.statsByAgeBins = (result) => {
-  // Fetch ages and bin in app layer (portable, test-friendly)
-  const sql = 'SELECT customer_age FROM customer';
-  pool.query(sql, (err, rows) => {
+  pool.query(AGE_BINS_SQL, (err, rows) => {
     if (err) {
       console.error('Customer.statsByAgeBins failed:', err.message);
       result(err, null);
       return;
     }
+    // Empty bins produce no row, so start every bin at zero.
     const bins = {
       '0-17': 0,
       '18-25': 0,
@@ -335,12 +350,7 @@ Customer.statsByAgeBins = (result) => {
       '66+': 0,
     };
     for (const r of rows) {
-      const age = Number(r.customer_age);
-      if (age <= 17) bins['0-17']++;
-      else if (age <= 25) bins['18-25']++;
-      else if (age <= 40) bins['26-40']++;
-      else if (age <= 65) bins['41-65']++;
-      else bins['66+']++;
+      if (Object.prototype.hasOwnProperty.call(bins, r.bin)) bins[r.bin] = Number(r.count);
     }
     result(null, bins);
   });

@@ -1,8 +1,9 @@
 # Node.js LTS
 FROM node:22-alpine
 
-# Small init process so SIGTERM reaches node and zombies get reaped.
-RUN apk add --no-cache tini
+# Pick up OS security patches released after the base image was built, and a
+# small init process so SIGTERM reaches node and zombies get reaped.
+RUN apk upgrade --no-cache && apk add --no-cache tini
 
 WORKDIR /app
 
@@ -11,8 +12,9 @@ WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci --omit=dev --ignore-scripts && npm cache clean --force
 
-# Copy source (see .dockerignore - .env and node_modules are excluded)
-COPY --chown=node:node . .
+# Copy source (see .dockerignore - .env and node_modules are excluded). Owned
+# by root on purpose: the app user can read the code but not rewrite it.
+COPY . .
 
 ENV NODE_ENV=production
 EXPOSE 3000

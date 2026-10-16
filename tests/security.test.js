@@ -150,6 +150,72 @@ describe('Internal error disclosure', () => {
     expect(res.body).toEqual({ message: 'Internal Server Error' });
     expect(JSON.stringify(res.body)).not.toMatch(/ER_BAD_FIELD_ERROR|Unknown column|SELECT secret/);
   });
+
+  it.each([
+    ['a non-numeric status', { status: 'ECONNREFUSED' }],
+    ['a non-error statusCode', { statusCode: 200 }],
+    ['an out-of-range status', { status: 999 }],
+  ])('maps an error with %s to a generic 500', async (_label, props) => {
+    mockPool.__setFailure(Object.assign(new Error('connect ECONNREFUSED 10.0.0.5:3306'), props));
+    const res = await request(app).get('/api/customers');
+
+    expect(res.status).toBe(500);
+    expect(res.body).toEqual({ message: 'Internal Server Error' });
+  });
+
+  it('hides the message of a 4xx error marked expose: false', async () => {
+    mockPool.__setFailure(
+      Object.assign(new Error('duplicate key customer_secret_idx'), { status: 409, expose: false })
+    );
+    const res = await request(app).get('/api/customers');
+
+    expect(res.status).toBe(409);
+    expect(res.body).toEqual({ message: 'Conflict' });
+  });
+
+  it('answers malformed JSON with a 400 instead of a 500', async () => {
+    const res = await request(app)
+      .post('/api/customers')
+      .set('Content-Type', 'application/json')
+      .send('{"customer_name": ');
+
+    expect(res.status).toBe(400);
+    expect(res.body).toHaveProperty('message');
+  });
+});
+
+describe('Input validation bounds', () => {
+  it.each([
+    ['page beyond the maximum', { page: 10001 }],
+    ['minAge beyond the maximum', { minAge: 131 }],
+    ['advancedFilter that is not JSON', { advancedFilter: '{age.gte: 18' }],
+    ['advancedFilter that is a JSON array', { advancedFilter: '[1,2]' }],
+    ['advancedFilter that is a JSON scalar', { advancedFilter: '42' }],
+  ])('rejects %s', async (_label, query) => {
+    const res = await request(app).get('/api/customers').query(query);
+    expect(res.status).toBe(400);
+  });
+
+  it('accepts the maximum page', async () => {
+    const res = await request(app).get('/api/customers').query({ page: 10000 });
+    expect(res.status).toBe(200);
+    expect(res.body.page).toBe(10000);
+  });
+
+  it('rejects whitespace-only names', async () => {
+    const res = await request(app)
+      .post('/api/customers')
+      .send({ ...validBody, customer_name: '   ' });
+    expect(res.status).toBe(400);
+  });
+
+  it('trims names before storing them', async () => {
+    const res = await request(app)
+      .post('/api/customers')
+      .send({ ...validBody, customer_name: '  Ali  ', customer_surname: '\tVeli ' });
+    expect(res.status).toBe(201);
+    expect(mockPool.__lastParams().slice(0, 2)).toEqual(['Ali', 'Veli']);
+  });
 });
 
 describe('Query building hardening', () => {

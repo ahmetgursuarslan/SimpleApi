@@ -23,18 +23,24 @@ function toInt(value, fallback) {
  * `trust proxy` must be explicit: leaving it off breaks rate limiting behind a
  * load balancer, while blindly enabling it lets clients spoof X-Forwarded-For
  * and bypass the limiter. Accepts `false`, `true`, a hop count, or a CIDR list.
+ *
+ * Numbers are always hop counts: `TRUST_PROXY=1` is the usual "one load
+ * balancer in front" setting and must not widen to `true` (trust every hop),
+ * which would make the left-most, client-controlled X-Forwarded-For entry the
+ * rate-limit key.
  */
 function parseTrustProxy(raw) {
   if (raw === undefined || raw === '') return false;
   const value = String(raw).trim();
-  if (['false', '0', 'no', 'off'].includes(value.toLowerCase())) return false;
-  if (['true', '1', 'yes', 'on'].includes(value.toLowerCase())) return true;
+  if (['false', 'no', 'off'].includes(value.toLowerCase())) return false;
+  if (['true', 'yes', 'on'].includes(value.toLowerCase())) return true;
   const hops = Number.parseInt(value, 10);
-  if (String(hops) === value && hops >= 0) return hops;
+  if (String(hops) === value && hops >= 0) return hops === 0 ? false : hops;
   return value; // subnet name or comma-separated CIDR list, handled by proxy-addr
 }
 
 module.exports = {
+  parseTrustProxy,
   NODE_ENV,
   isProduction,
   isTest,
